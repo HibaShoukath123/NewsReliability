@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>News Reliability</title>
+</head>
+<body>
+    <h1>Is this news reliable or not?! </h1>
+    <form action="{{ url_for('reliablity') }}" method="POST">
+        <p><label for="text">Text</label>
+        <input type="text" id="text" name="text" placeholder="Enter text"></p>
+        <button type="submit">Predict</button>
+    </form>
+
+    {% if prediction_text %}
+        <h2>{{ prediction_text }}</h2>
+    {% endif %}
+</body>
+</html>
