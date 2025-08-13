@@ -1,54 +1,62 @@
-import re
+import os, re
 import joblib
-import pickle as pk
-import gensim
 import numpy as np
 from flask import Flask, request, render_template
 
+
+from gensim.models import Word2Vec
+
+
+
+import nltk
+from nltk.corpus import stopwords
+from nltk.stem import WordNetLemmatizer
+
+
+nltk.data.path.append(os.path.expanduser('~/nltk_data'))
+
+STOPWORDS = set(stopwords.words('english'))
+LEMM = WordNetLemmatizer()
+NON_ALPHA = re.compile(r'[^a-zA-Z]')
+
+def preprocess_tokens(text: str):
+    """Regex clean → lowercase → tokenize → remove stopwords/short tokens → lemmatize."""
+    text = NON_ALPHA.sub(' ', (text or '')).lower().strip()
+    toks = text.split()
+    toks = [t for t in toks if t not in STOPWORDS and len(t) > 2]
+    toks = [LEMM.lemmatize(t) for t in toks]
+    return toks
+
+def to_doc_vec(tokens, w2v_model):
+    """Average Word2Vec embeddings; returns shape (1, dim)."""
+    dim = w2v_model.vector_size
+    vec = np.zeros(dim, dtype='float32')
+    n = 0
+    for t in tokens:
+        if t in w2v_model.wv:
+            vec += w2v_model.wv[t]
+            n += 1
+    if n:
+        vec /= n
+    return vec.reshape(1, -1)
+
+
+W2V = Word2Vec.load('word2vec_model.bin')
+CLF = joblib.load('svm_model2.pkl')   # or rename your file to best_model.pkl and update this
+
 app = Flask(__name__)
 
-# Define route for homepage (root URL)
-@app.route('/', methods=["GET", "POST"])
+
+@app.route('/', methods=['GET', 'POST'])
 def reliablity():
-    input_pred = None  # Initialize variable for prediction result
-    result = None      # Initialize variable for the result message
+    result = None
+    if request.method == 'POST':
+        user_text = request.form.get('text', '')
+        tokens = preprocess_tokens(user_text)
+        doc = to_doc_vec(tokens, W2V)
+        pred = int(CLF.predict(doc)[0])
+        result = 'Reliable' if pred == 1 else 'Unreliable'
+    return render_template('index.html', prediction_text=(f'News Reliability Analysis: {result}' if result else ''))
 
-    if request.method == "POST":
-        text1 = request.form.get("text")  # Get input text from the form
-        input_text = text1
-        input_text = re.sub(r'[^a-zA-Z]', ' ', input_text)  # Clean the text (remove non-alphabetic characters)
-
-        # Load the pre-trained Word2Vec model and the SVM model
-        filename = r'svm_model2.pkl'  # Corrected the file extension
-        model = gensim.models.Word2Vec.load('word2vec_model.bin')  # Load the Word2Vec model
-        #loaded_model = pk.load(open(filename))  # Load the SVM model
-        loaded_model = joblib.load(filename)
-
-        # Tokenize the input text and create the feature vector for prediction
-        input_tokens = input_text.lower().split()  # Tokenize the input text
-        input_vector = np.zeros((1, model.vector_size))  # Initialize the vector with zeros
-
-        # Summing the Word2Vec embeddings for the input tokens
-        for token in input_tokens:
-            if token in model.wv:  # Check if the token is in the Word2Vec model
-                input_vector += model.wv[token]  # Add the token embedding to the vector
-
-        # Normalize the vector by dividing by the number of tokens
-        input_vector /= len(input_tokens) if len(input_tokens) > 0 else 1
-
-        # Make prediction with the SVM model
-        input_pred = loaded_model.predict(input_vector)
-        input_pred = input_pred.astype(int)  # Ensure the prediction is in integer form
-
-        # Based on the prediction, set the result message
-        if input_pred[0] == 1:
-            result = 'Review is Positive'
-        else:
-            result = "Review is Negative"
-
-    # Render the result on the HTML page
-    return render_template('index.html', prediction_text='News Reliability Analysis: {}'.format(result))
-
-# Run the Flask app
 if __name__ == '__main__':
     app.run(debug=True)
